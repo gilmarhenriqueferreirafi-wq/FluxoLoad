@@ -1,0 +1,32 @@
+# Credenciais, configuracoes e dados locais
+.env
+.env.*
+!.env.example
+*.log
+
+# Python
+__pycache__/
+*.py[cod]
+*.pyd
+.venv/
+venv/
+env/
+ENV/
+.pytest_cache/
+.mypy_cache/
+
+# Ferramentas e sistema
+.vscode/
+.idea/
+Thumbs.db
+Desktop.ini
+
+# Builds e pacotes gerados
+build/
+dist/
+*.spec.bak
+
+# Dados de teste e arquivos temporarios do FluxoLoad
+.test-download/
+.fluxoload_work/
+*.part
