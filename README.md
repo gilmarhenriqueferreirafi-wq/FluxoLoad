@@ -54,3 +54,7 @@ run.py                   Ponto de entrada
 ## Licença
 
 Este projeto está disponível sob a licença [MIT](LICENSE).
+
+## Aviso do Windows SmartScreen
+
+A beta ainda não possui assinatura digital pública. Consulte [AVISO-SMARTSCREEN.txt](AVISO-SMARTSCREEN.txt) antes de executar o programa e baixe-o somente pela release oficial.

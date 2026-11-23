@@ -1,0 +1,17 @@
+AVISO DE SEGURANCA - FLUXOLOAD BETA 1.1
+
+O Windows SmartScreen pode exibir um aviso ao abrir esta versao porque o
+FluxoLoad ainda nao possui um certificado digital publico de assinatura.
+
+Isso significa que o Windows nao conseguiu confirmar automaticamente a
+identidade do criador. O aviso, sozinho, nao confirma que o arquivo seja
+malicioso.
+
+Baixe o programa somente pela release oficial:
+https://github.com/gilmarhenriqueferreirafi-wq/FluxoLoad/releases
+
+Se voce confia na origem do arquivo, use "Mais informacoes" e depois
+"Executar assim mesmo" no SmartScreen. Nao desative o SmartScreen do Windows.
+
+A assinatura publica sera adicionada em uma versao futura por meio de um
+certificado de codigo apropriado.
