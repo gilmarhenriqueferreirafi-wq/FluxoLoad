@@ -1,13 +1,14 @@
 @echo off
 setlocal
-set "APP=%~dp0beta1.1youtube_estable_FluxoLoad.exe"
+set "APP=%~dp0FluxoLoad.exe"
 
 if not exist "%APP%" (
-    echo Executavel nao encontrado.
-    echo Extraia o ZIP completo antes de executar este arquivo.
+    echo Executavel nao encontrado: "%APP%"
     pause
     exit /b 1
 )
 
+echo Removendo a marca de download do Windows para este teste...
+powershell.exe -NoProfile -ExecutionPolicy Bypass -Command "Unblock-File -LiteralPath '%APP%' -ErrorAction SilentlyContinue"
 start "FluxoLoad" "%APP%"
 endlocal

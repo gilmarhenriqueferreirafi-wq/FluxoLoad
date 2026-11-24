@@ -13,5 +13,11 @@ https://github.com/gilmarhenriqueferreirafi-wq/FluxoLoad/releases
 Se voce confia na origem do arquivo, use "Mais informacoes" e depois
 "Executar assim mesmo" no SmartScreen. Nao desative o SmartScreen do Windows.
 
+O instalador nao inicia o aplicativo automaticamente. Para um teste local,
+abra a pasta de instalacao e execute executar_fluxoload.cmd como administrador.
+Esse comando tenta remover a marca de download do arquivo antes de iniciar.
+Em maquinas com Controle Inteligente de Aplicativos, pode ser necessario
+permitir manualmente o aplicativo nas configuracoes de Seguranca do Windows.
+
 A assinatura publica sera adicionada em uma versao futura por meio de um
 certificado de codigo apropriado.

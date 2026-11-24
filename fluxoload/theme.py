@@ -24,6 +24,8 @@ def build_stylesheet(theme: str, accent: str) -> str:
         QTabBar::tab:selected {{ color: {accent}; border-bottom: 2px solid {accent}; }}
         QTabWidget::pane {{ border: 1px solid {border}; border-radius: 8px; }}
         QDockWidget {{ titlebar-close-icon: none; border: 1px solid {border}; }}
+        QMainWindow::separator {{ background: {border}; width: 6px; height: 6px; }}
+        QMainWindow::separator:hover {{ background: {accent}; }}
         QLineEdit, QComboBox {{ background: {surface}; color: {text}; border: 1px solid {border}; padding: 7px; border-radius: 6px; }}
         QProgressBar {{ border: 1px solid {border}; border-radius: 5px; text-align: center; color: {text}; }}
         QProgressBar::chunk {{ background: {accent}; border-radius: 4px; }}

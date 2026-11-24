@@ -1,11 +1,10 @@
 from __future__ import annotations
 
 import sys
-import threading
 import os
 from pathlib import Path
 
-from PySide6.QtCore import QObject, QTimer, QUrl, Qt, Signal, Slot
+from PySide6.QtCore import QObject, QThread, QTimer, QUrl, Qt, Signal, Slot
 from PySide6.QtWidgets import (
     QApplication,
     QCheckBox,
@@ -22,6 +21,7 @@ from PySide6.QtWidgets import (
     QMessageBox,
     QPushButton,
     QProgressBar,
+    QScrollArea,
     QSizePolicy,
     QDockWidget,
     QFrame,
@@ -37,6 +37,7 @@ from PySide6.QtWebEngineCore import QWebEnginePage, QWebEngineProfile, QWebEngin
 from PySide6.QtWebEngineWidgets import QWebEngineView
 
 from .downloader import DownloadError, DownloadManager
+from .pot_provider import ensure_pot_provider
 from .settings import AppSettings
 from .theme import build_stylesheet
 
@@ -148,6 +149,9 @@ class DownloadWorker(QObject):
         except DownloadError as error:
             self.failed.emit(str(error))
             return
+        except Exception as error:
+            self.failed.emit(f"Falha inesperada ({type(error).__name__}): {error}")
+            return
         self.completed.emit(str(result))
 
 
@@ -207,7 +211,7 @@ class QuietWebView(QWebEngineView):
         return
 
 
-class BrowserFluxoLoadApp:
+class BrowserFluxoLoadApp(QObject):
     PLATFORMS = {
         "YouTube": "https://www.youtube.com",
         "Instagram": "https://www.instagram.com",
@@ -215,6 +219,7 @@ class BrowserFluxoLoadApp:
     }
 
     def __init__(self) -> None:
+        super().__init__()
         chromium_flags = os.environ.get("QTWEBENGINE_CHROMIUM_FLAGS", "")
         if "--disable-features=WebGPU" not in chromium_flags:
             os.environ["QTWEBENGINE_CHROMIUM_FLAGS"] = (
@@ -227,6 +232,9 @@ class BrowserFluxoLoadApp:
         )
         self.window = QMainWindow()
         self.window.setWindowTitle("FluxoLoad")
+        icon_path = Path(__file__).resolve().parent.parent / "assets" / "fluxoload-icon.png"
+        if icon_path.is_file():
+            self.window.setWindowIcon(QIcon(str(icon_path)))
         self.window.resize(1180, 760)
         self.destination = Path(self.settings.values["download_directory"])
         profile_dir = Path.home() / "AppData" / "Local" / "FluxoLoad" / "browser-profile"
@@ -241,6 +249,10 @@ class BrowserFluxoLoadApp:
             QWebEngineProfile.PersistentCookiesPolicy.ForcePersistentCookies
         )
         self.browser = QuietWebView(self.web_profile)
+        self.browser_cookie_store = self.web_profile.cookieStore()
+        self._browser_cookies = {}
+        self.browser_cookie_store.cookieAdded.connect(self._cache_browser_cookie)
+        self.browser_cookie_store.loadAllCookies()
         self.stack = QStackedWidget()
         self.home = QWidget()
         self._settings_return_index = 0
@@ -251,13 +263,21 @@ class BrowserFluxoLoadApp:
         self.detail = QLabel("Pronto para navegar")
         self.status = QStatusBar()
         self.worker: DownloadWorker | None = None
+        self.download_thread: QThread | None = None
         self.download_dock: QDockWidget | None = None
         self.download_panel_layout: QVBoxLayout | None = None
+        self.download_scroll_area: QScrollArea | None = None
         self.download_filter: QComboBox | None = None
         self.download_row_progress: QProgressBar | None = None
         self.download_row_status: QLabel | None = None
+        self._active_download_row: QFrame | None = None
         self._last_download_url: str | None = None
         self._last_download_options: dict | None = None
+        self._download_queue: list[
+            tuple[str, dict, tuple[QFrame, QProgressBar, QLabel] | None]
+        ] = []
+        self._download_in_progress = False
+        self._last_session_diagnostic = "Sessão ainda não sincronizada"
         self._build_ui()
 
     def _build_ui(self) -> None:
@@ -499,7 +519,12 @@ class BrowserFluxoLoadApp:
         row = QHBoxLayout()
         row.setSpacing(28)
         row.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        resource_dir = Path(__file__).resolve().parent.parent / "assets"
+        resource_roots = [
+            Path(getattr(sys, "_MEIPASS", "")) / "assets",
+            Path(__file__).resolve().parent.parent / "assets",
+            Path.cwd() / "assets",
+        ]
+        resource_dir = next((path for path in resource_roots if path.is_dir()), resource_roots[1])
         image_paths = {
             "YouTube": resource_dir / "youtube.png",
             "Instagram": resource_dir / "instagram.png",
@@ -547,13 +572,15 @@ class BrowserFluxoLoadApp:
         self.download_dock = QDockWidget("Downloads", self.window)
         self.download_dock.setAllowedAreas(Qt.DockWidgetArea.RightDockWidgetArea)
         self.download_dock.setFeatures(QDockWidget.DockWidgetFeature.NoDockWidgetFeatures)
-        self.download_dock.setMinimumWidth(350)
-        self.download_dock.setMaximumWidth(460)
+        self.download_dock.setMinimumWidth(260)
+        self.download_dock.setMaximumWidth(600)
+        self.download_dock.setSizePolicy(
+            QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Preferred
+        )
         self.download_dock.setVisible(False)
         panel = QWidget()
-        layout = QVBoxLayout(panel)
-        self.download_panel_layout = layout
-        layout.setContentsMargins(12, 12, 12, 12)
+        panel_layout = QVBoxLayout(panel)
+        panel_layout.setContentsMargins(12, 12, 12, 12)
         actions = QHBoxLayout()
         self.download_filter = QComboBox()
         self.download_filter.addItem("Todos", "all")
@@ -567,11 +594,20 @@ class BrowserFluxoLoadApp:
         open_folder.clicked.connect(self.open_download_directory)
         actions.addWidget(refresh)
         actions.addWidget(open_folder)
-        layout.addLayout(actions)
+        panel_layout.addLayout(actions)
+
+        scroll_content = QWidget()
+        self.download_panel_layout = QVBoxLayout(scroll_content)
+        self.download_panel_layout.setContentsMargins(0, 0, 0, 0)
         empty = QLabel("Nenhum download iniciado")
         empty.setObjectName("emptyDownloads")
-        layout.addWidget(empty)
-        layout.addStretch(1)
+        self.download_panel_layout.addWidget(empty)
+        self.download_panel_layout.addStretch(1)
+        self.download_scroll_area = QScrollArea()
+        self.download_scroll_area.setWidgetResizable(True)
+        self.download_scroll_area.setFrameShape(QFrame.Shape.NoFrame)
+        self.download_scroll_area.setWidget(scroll_content)
+        panel_layout.addWidget(self.download_scroll_area, stretch=1)
         self.download_dock.setWidget(panel)
         self.window.addDockWidget(Qt.DockWidgetArea.RightDockWidgetArea, self.download_dock)
         self.refresh_download_files()
@@ -584,8 +620,11 @@ class BrowserFluxoLoadApp:
         if self.download_dock is None:
             return
         self.download_dock.setVisible(visible)
-        self.progress.setVisible(not visible)
-        self.detail.setVisible(not visible)
+        if visible:
+            self.refresh_download_files()
+        show_global_progress = not visible and self._download_in_progress
+        self.progress.setVisible(show_global_progress)
+        self.detail.setVisible(show_global_progress)
 
     def open_download_directory(self) -> None:
         self.destination.mkdir(parents=True, exist_ok=True)
@@ -645,11 +684,15 @@ class BrowserFluxoLoadApp:
         if path.is_file():
             os.startfile(path)
 
-    def _add_download_row(self, url: str) -> None:
+    def _create_download_row(
+        self, url: str, status_text: str = "Preparando download..."
+    ) -> tuple[QFrame, QProgressBar, QLabel] | None:
         if self.download_dock is None:
-            return
+            return None
         panel = self.download_dock.widget()
-        layout = panel.layout()
+        layout = self.download_panel_layout
+        if layout is None:
+            return None
         empty = panel.findChild(QLabel, "emptyDownloads")
         if empty is not None:
             empty.hide()
@@ -663,31 +706,40 @@ class BrowserFluxoLoadApp:
         title.setMinimumWidth(0)
         title.setSizePolicy(QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Preferred)
         progress = QProgressBar()
-        status = QLabel("Preparando download...")
+        status = QLabel(status_text)
         status.setObjectName("mutedLabel")
         row_layout.addWidget(title)
         row_layout.addWidget(progress)
         row_layout.addWidget(status)
         layout.insertWidget(max(0, layout.count() - 1), row)
+        return row, progress, status
+
+    def _add_download_row(self, url: str) -> None:
+        created = self._create_download_row(url)
+        if created is None:
+            return
+        _, progress, status = created
         self.download_row_progress = progress
         self.download_row_status = status
+        self._active_download_row = created[0]
         if self.settings.values.get("open_download_panel", True):
             self._set_download_panel_visible(True)
 
     def _export_browser_cookies(self, callback) -> None:
         """Exporta cookies da sessão local em formato temporário para o yt-dlp."""
-        store = self.web_profile.cookieStore()
-        cookies = {}
+        store = self.browser_cookie_store
+        cookies = dict(self._browser_cookies)
+
+        def value_text(value) -> str:
+            try:
+                return bytes(value).decode("utf-8", errors="replace")
+            except TypeError:
+                return str(value)
 
         def collect(cookie) -> None:
-            def value_text(value) -> str:
-                try:
-                    return bytes(value).decode("utf-8", errors="replace")
-                except TypeError:
-                    return str(value)
-
             key = (value_text(cookie.domain()), value_text(cookie.path()), value_text(cookie.name()))
             cookies[key] = cookie
+            self._browser_cookies[key] = cookie
 
         store.cookieAdded.connect(collect)
         store.loadAllCookies()
@@ -698,7 +750,7 @@ class BrowserFluxoLoadApp:
             except (TypeError, RuntimeError):
                 pass
             if not cookies:
-                callback(None)
+                callback(None, 0, False)
                 return
             cookie_path = Path.home() / "AppData" / "Local" / "FluxoLoad" / "browser-cookies.txt"
             cookie_path.parent.mkdir(parents=True, exist_ok=True)
@@ -711,41 +763,139 @@ class BrowserFluxoLoadApp:
                     value = value_text(cookie.value())
                     include_subdomains = "TRUE" if domain.startswith(".") else "FALSE"
                     secure = "TRUE" if cookie.isSecure() else "FALSE"
-                    expiry = cookie.expirationDate().toSecsSinceEpoch()
+                    expiration = cookie.expirationDate()
+                    expiry = expiration.toSecsSinceEpoch() if expiration.isValid() else 0
+                    if cookie.isHttpOnly():
+                        domain = f"#HttpOnly_{domain}"
                     file.write(
                         f"{domain}\t{include_subdomains}\t{path}\t{secure}\t{expiry}\t{name}\t{value}\n"
                     )
-            callback(str(cookie_path))
+            auth_cookie_names = {
+                "SID", "HSID", "SSID", "APISID", "SAPISID", "LOGIN_INFO",
+                "__Secure-1PSID", "__Secure-3PSID", "__Secure-1PSIDTS",
+                "__Secure-3PSIDTS", "SIDCC", "__Secure-1PSIDCC", "__Secure-3PSIDCC",
+            }
+            has_auth_cookie = any(
+                value_text(cookie.name()) in auth_cookie_names
+                and "youtube.com" in value_text(cookie.domain()).lower()
+                for cookie in cookies.values()
+            )
+            callback(str(cookie_path), len(cookies), has_auth_cookie)
 
         QTimer.singleShot(2500, finish)
+
+    def _cache_browser_cookie(self, cookie) -> None:
+        def value_text(value) -> str:
+            try:
+                return bytes(value).decode("utf-8", errors="replace")
+            except TypeError:
+                return str(value)
+
+        key = (value_text(cookie.domain()), value_text(cookie.path()), value_text(cookie.name()))
+        self._browser_cookies[key] = cookie
 
     def _start_download(self, url: str, options: dict, cookie_path: str | None) -> None:
         if cookie_path:
             options["cookiefile"] = cookie_path
         options["browser_profile"] = str(self.browser_profile_dir)
+        options["user_agent"] = self.web_profile.httpUserAgent()
         self.worker = DownloadWorker(url, str(self.destination), options)
+        self.download_thread = QThread(self.window)
+        self.worker.moveToThread(self.download_thread)
         self.worker.progress.connect(self._update_progress)
         self.worker.completed.connect(self._download_completed)
         self.worker.failed.connect(self._download_failed)
-        threading.Thread(target=self.worker.run, daemon=True).start()
+        self.worker.completed.connect(self.download_thread.quit)
+        self.worker.failed.connect(self.download_thread.quit)
+        self.worker.completed.connect(self.worker.deleteLater)
+        self.worker.failed.connect(self.worker.deleteLater)
+        self.download_thread.finished.connect(self.download_thread.deleteLater)
+        self.download_thread.started.connect(self.worker.run)
+        self.download_thread.start()
+
+    def _start_next_queued_download(self) -> None:
+        if self._download_in_progress or not self._download_queue:
+            return
+        if self.download_thread is not None and self.download_thread.isRunning():
+            QTimer.singleShot(100, self._start_next_queued_download)
+            return
+        url, options, created_row = self._download_queue.pop(0)
+        self._last_download_url = url
+        self._last_download_options = dict(options)
+        self._download_in_progress = True
+        self.destination.mkdir(parents=True, exist_ok=True)
+        if created_row is None:
+            self._add_download_row(url)
+        else:
+            row, progress, status = created_row
+            status.setText("Preparando download...")
+            self.download_row_progress = progress
+            self.download_row_status = status
+            self._active_download_row = row
+        if self.download_dock is None or not self.download_dock.isVisible():
+            self.progress.setVisible(True)
+            self.detail.setVisible(True)
+        self.progress.setValue(0)
+        self.detail.setText("Preparando download...")
+        self.status.showMessage(
+            f"Iniciando download da fila ({len(self._download_queue)} restante(s))",
+            5000,
+        )
+        self._start_download_with_browser_cookies(url, options)
+
+    def _start_download_with_browser_cookies(self, url: str, options: dict) -> None:
+        self.detail.setText("Sincronizando sessão do navegador...")
+        if self.download_row_status is not None:
+            self.download_row_status.setText("Sincronizando sessão do navegador...")
+        def start(cookie_path: str | None, cookie_count: int, has_auth_cookie: bool) -> None:
+            provider_ready = ensure_pot_provider()
+            if cookie_count:
+                provider_text = "PO Token local ativo" if provider_ready else "PO Token local indisponível"
+                message = f"Sessão sincronizada ({cookie_count} cookies) — {provider_text}"
+                if not has_auth_cookie:
+                    message += "; login do YouTube não detectado no navegador interno"
+            else:
+                message = "Nenhum cookie da sessão interna foi encontrado"
+                if provider_ready:
+                    message += " — PO Token local ativo"
+                else:
+                    message += " — PO Token local indisponível"
+            self._last_session_diagnostic = message
+            self.status.showMessage(message, 8000)
+            if self.download_row_status is not None:
+                self.download_row_status.setText("Preparando download...")
+            self._start_download(url, options, cookie_path)
+
+        self._export_browser_cookies(start)
 
     def _retry_last_download(self) -> None:
         if not self._last_download_url or self._last_download_options is None:
             return
+        self._download_in_progress = True
+        if self.download_dock is None or not self.download_dock.isVisible():
+            self.progress.setVisible(True)
+            self.detail.setVisible(True)
         self.progress.setValue(0)
         self.detail.setText("Tentando novamente...")
         if self.download_row_progress is not None:
             self.download_row_progress.setValue(0)
         if self.download_row_status is not None:
             self.download_row_status.setText("Tentando novamente...")
-        self._start_download(
-            self._last_download_url,
-            dict(self._last_download_options),
-            None,
+        self._start_download_with_browser_cookies(
+            self._last_download_url, dict(self._last_download_options)
         )
 
     @Slot()
     def download_current_page(self) -> None:
+        if self._download_in_progress and False:
+            self.status.showMessage("Já existe um download em andamento; aguarde a conclusão.", 5000)
+            QMessageBox.information(
+                self.window,
+                "Download em andamento",
+                "Aguarde o download atual terminar antes de iniciar outro."
+            )
+            return
+
         url = self.browser.url().toString()
         if not url.startswith(("http://", "https://")):
             QMessageBox.warning(self.window, "URL inválida", "Abra uma página ou cole um link primeiro.")
@@ -771,13 +921,25 @@ class BrowserFluxoLoadApp:
         if dialog.exec() != QDialog.DialogCode.Accepted:
             return
         options = dialog.values()
+        if self._download_in_progress:
+            queued_row = self._create_download_row(url, "Na fila...")
+            self._download_queue.append((url, options, queued_row))
+            self.status.showMessage(
+                f"Download adicionado Ã  fila ({len(self._download_queue)} na fila)",
+                5000,
+            )
+            return
         self._last_download_url = url
         self._last_download_options = dict(options)
+        self._download_in_progress = True
         self.destination.mkdir(parents=True, exist_ok=True)
         self._add_download_row(url)
+        if self.download_dock is None or not self.download_dock.isVisible():
+            self.progress.setVisible(True)
+            self.detail.setVisible(True)
         self.progress.setValue(0)
         self.detail.setText("Preparando download...")
-        self._start_download(url, options, None)
+        self._start_download_with_browser_cookies(url, options)
 
     def _is_supported_platform(self, host: str) -> bool:
         host = host.lower().removeprefix("www.")
@@ -794,6 +956,7 @@ class BrowserFluxoLoadApp:
         host = url.host().lower().removeprefix("www.")
         return host in {"youtube.com", "m.youtube.com"} and url.path().lower().startswith("/shorts/")
 
+    @Slot(dict)
     def _update_progress(self, data: dict) -> None:
         percent = int(data.get("percent", 0))
         self.progress.setValue(max(0, min(percent, 100)))
@@ -803,9 +966,19 @@ class BrowserFluxoLoadApp:
         if self.download_row_status is not None:
             self.download_row_status.setText(data.get("text", "Baixando..."))
 
+    @Slot(str)
     def _download_completed(self, path: str) -> None:
+        self._download_in_progress = False
         self.progress.setValue(100)
+        self.progress.setVisible(False)
+        self.detail.setVisible(False)
         self.detail.setText(f"Concluído: {Path(path).name}")
+        if self._active_download_row is not None:
+            self._active_download_row.setParent(None)
+            self._active_download_row.deleteLater()
+            self._active_download_row = None
+        self.download_row_progress = None
+        self.download_row_status = None
         self.status.showMessage("Download concluído")
         if self.download_row_progress is not None:
             self.download_row_progress.setValue(100)
@@ -814,20 +987,32 @@ class BrowserFluxoLoadApp:
         self.refresh_download_files()
         if self.settings.values.get("open_after_download"):
             self.open_file(Path(path))
+        QTimer.singleShot(0, self._start_next_queued_download)
 
+    @Slot(str)
     def _download_failed(self, error: str) -> None:
+        self._download_in_progress = False
         self.status.showMessage("Falha no download")
+        self.detail.setText(self._last_session_diagnostic)
         if self.download_row_status is not None:
             self.download_row_status.setText("Falha no download")
         dialog = QMessageBox(self.window)
         dialog.setIcon(QMessageBox.Icon.Critical)
         dialog.setWindowTitle("Erro no download")
-        dialog.setText(error)
-        retry = dialog.addButton("Tentar novamente", QMessageBox.ButtonRole.AcceptRole)
-        dialog.addButton("Sair", QMessageBox.ButtonRole.RejectRole)
+        dialog.setText(f"{error}\n\nDiagnóstico da sessão: {self._last_session_diagnostic}")
+        dialog.setStandardButtons(
+            QMessageBox.StandardButton.Retry | QMessageBox.StandardButton.Close
+        )
+        retry_button = dialog.button(QMessageBox.StandardButton.Retry)
+        close_button = dialog.button(QMessageBox.StandardButton.Close)
+        retry_button.setText("Tentar novamente")
+        close_button.setText("Sair")
+        dialog.setDefaultButton(QMessageBox.StandardButton.Retry)
         dialog.exec()
-        if dialog.clickedButton() is retry:
+        if dialog.standardButton(dialog.clickedButton()) == QMessageBox.StandardButton.Retry:
             self._retry_last_download()
+        else:
+            QTimer.singleShot(0, self._start_next_queued_download)
 
     def run(self) -> None:
         self.window.show()

@@ -9,6 +9,8 @@ import tempfile
 import time
 from typing import Callable
 
+from .pot_provider import ensure_pot_provider
+
 
 class DownloadError(RuntimeError):
     """Erro amigável para a camada de interface."""
@@ -75,6 +77,7 @@ class DownloadManager:
                 progress({"percent": 99, "text": "Processando arquivo..."})
 
         download_options = options or {}
+        ensure_pot_provider()
         ffmpeg_path = self._find_ffmpeg()
         media_type = download_options.get("media_type", "video")
         quality = download_options.get("quality", "Melhor disponível")
@@ -112,7 +115,20 @@ class DownloadManager:
             "socket_timeout": 30,
             "concurrent_fragment_downloads": 1,
             "js_runtimes": {"node": {}},
+            "extractor_args": {
+                # Permite fallback quando o mweb recebe LOGIN_REQUIRED antes
+                # de chegar à etapa de geração do PO Token.
+                "youtube": {"player_client": ["mweb", "tv", "web_safari"]},
+                # extractor_args usa listas para argumentos nomeados do plugin.
+                "youtubepot-bgutilhttp": {"base_url": ["http://127.0.0.1:4416"]},
+            },
         }
+        user_agent = download_options.get("user_agent")
+        if user_agent:
+            options["http_headers"] = {
+                "User-Agent": user_agent,
+                "Referer": "https://www.youtube.com/",
+            }
         if ffmpeg_path:
             options["ffmpeg_location"] = ffmpeg_path
             options["merge_output_format"] = "mp4"

@@ -30,3 +30,9 @@ dist/
 .test-download/
 .fluxoload_work/
 *.part
+
+# Pacotes locais de distribuicao; os artefatos oficiais ficam nas releases
+distribuicao/
+pacote-fonte/
+installer/output/
+release-assets/

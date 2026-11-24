@@ -1,0 +1,29 @@
+TERMOS DE USO — FLUXOLOAD
+
+Última atualização: 23/11/2026
+
+1. Uso autorizado
+
+O FluxoLoad deve ser usado somente para baixar conteúdo que você tenha autorização para baixar. Você é responsável por respeitar direitos autorais, licenças, privacidade e os termos de uso de cada plataforma.
+
+2. Contas e sessão
+
+O aplicativo usa uma sessão local do navegador interno para realizar downloads autorizados. O usuário deve iniciar e manter sua própria sessão. O FluxoLoad não deve ser usado para capturar, compartilhar ou obter credenciais de terceiros.
+
+3. Limitações
+
+YouTube, Instagram, TikTok e outros serviços podem bloquear, limitar ou modificar seus mecanismos a qualquer momento. A integração de PO Token melhora a compatibilidade, mas não garante que todos os vídeos estarão disponíveis.
+
+4. Privacidade e dados locais
+
+Cookies da sessão são usados localmente para a operação do download. Arquivos temporários de cookies são removidos ao final da tentativa. O perfil persistente do navegador e os arquivos baixados permanecem no computador até que o usuário os remova.
+
+5. Isenção de garantia
+
+O FluxoLoad é fornecido no estado em que se encontra, sem garantia de disponibilidade, compatibilidade ou funcionamento contínuo. O usuário assume os riscos e responsabilidades pelo uso do aplicativo.
+
+6. Licença
+
+O código do FluxoLoad é distribuído sob a licença MIT, disponível no arquivo LICENSE.
+
+Ao instalar o FluxoLoad, você confirma que leu e aceitou estes termos.
