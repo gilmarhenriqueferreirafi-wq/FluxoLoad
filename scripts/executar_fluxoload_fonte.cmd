@@ -1,7 +1,7 @@
 @echo off
 setlocal EnableExtensions
 
-cd /d "%~dp0"
+cd /d "%~dp0.."
 set "PYTHON_EXE="
 
 rem Primeiro tenta o Python Launcher, que normalmente atualiza o PATH sozinho.

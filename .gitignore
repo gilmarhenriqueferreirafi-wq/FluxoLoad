@@ -24,6 +24,8 @@ Desktop.ini
 # Builds e pacotes gerados
 build/
 dist/
+build_test/
+dist_test/
 *.spec.bak
 
 # Dados de teste e arquivos temporarios do FluxoLoad

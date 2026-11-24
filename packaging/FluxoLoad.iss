@@ -12,7 +12,7 @@ AppPublisherURL=https://github.com/gilmarhenriqueferreirafi-wq/FluxoLoad
 DefaultDirName={autopf}\FluxoLoad
 DefaultGroupName={#MyAppName}
 DisableProgramGroupPage=no
-LicenseFile=TERMOS-DE-USO.txt
+LicenseFile=docs\TERMOS-DE-USO.txt
 SetupIconFile=assets\fluxoload-icon.ico
 UninstallDisplayIcon={app}\{#MyAppExeName}
 ArchitecturesInstallIn64BitMode=x64compatible
@@ -34,9 +34,8 @@ Name: "desktopicon"; Description: "Criar atalho na área de trabalho"; GroupDesc
 
 [Files]
 Source: "dist\FluxoLoad\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs
-Source: "AVISO-SMARTSCREEN.txt"; DestDir: "{app}"; Flags: ignoreversion
 Source: "LICENSE"; DestDir: "{app}"; Flags: ignoreversion
-Source: "executar_fluxoload.cmd"; DestDir: "{app}"; Flags: ignoreversion
+Source: "installer\support\executar_fluxoload.cmd"; DestDir: "{app}"; Flags: ignoreversion
 
 [Icons]
 Name: "{autoprograms}\{#MyAppName}"; Filename: "{app}\{#MyAppExeName}"; WorkingDir: "{app}"
