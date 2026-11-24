@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import sys
 import os
+import ctypes
 from pathlib import Path
 
 from PySide6.QtCore import QObject, QThread, QTimer, QUrl, Qt, Signal, Slot
@@ -39,6 +40,7 @@ from PySide6.QtWebEngineWidgets import QWebEngineView
 from .downloader import DownloadError, DownloadManager
 from .pot_provider import ensure_pot_provider
 from .settings import AppSettings
+from .shortcuts import create_first_run_shortcuts
 from .theme import build_stylesheet
 
 
@@ -226,15 +228,62 @@ class BrowserFluxoLoadApp(QObject):
                 f"{chromium_flags} --disable-features=WebGPU"
             ).strip()
         self.qt_app = QApplication(sys.argv)
+        icon_path = Path(__file__).resolve().parent.parent / "assets" / "fluxoload-icon.ico"
+        if not icon_path.is_file():
+            icon_path = Path(__file__).resolve().parent.parent / "assets" / "fluxoload-icon.png"
+        app_icon = QIcon(str(icon_path)) if icon_path.is_file() else QIcon()
+        if sys.platform == "win32":
+            try:
+                ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID(
+                    "FluxoLoad.Desktop.Application"
+                )
+            except (AttributeError, OSError):
+                pass
+        if not app_icon.isNull():
+            self.qt_app.setWindowIcon(app_icon)
         self.settings = AppSettings.load()
         self.qt_app.setStyleSheet(
             build_stylesheet(self.settings.values["theme"], self.settings.values["accent_color"])
         )
         self.window = QMainWindow()
         self.window.setWindowTitle("FluxoLoad")
-        icon_path = Path(__file__).resolve().parent.parent / "assets" / "fluxoload-icon.png"
-        if icon_path.is_file():
-            self.window.setWindowIcon(QIcon(str(icon_path)))
+        if not app_icon.isNull():
+            self.window.setWindowIcon(app_icon)
+        self._native_taskbar_icon = None
+        if sys.platform == "win32" and icon_path.suffix.lower() == ".ico":
+            try:
+                user32 = ctypes.windll.user32
+                user32.LoadImageW.argtypes = [
+                    ctypes.c_void_p,
+                    ctypes.c_wchar_p,
+                    ctypes.c_uint,
+                    ctypes.c_int,
+                    ctypes.c_int,
+                    ctypes.c_uint,
+                ]
+                user32.LoadImageW.restype = ctypes.c_void_p
+                user32.SendMessageW.argtypes = [
+                    ctypes.c_void_p,
+                    ctypes.c_uint,
+                    ctypes.c_void_p,
+                    ctypes.c_void_p,
+                ]
+                user32.SendMessageW.restype = ctypes.c_void_p
+                native_icon = user32.LoadImageW(
+                    None,
+                    str(icon_path),
+                    1,  # IMAGE_ICON
+                    0,
+                    0,
+                    0x00000010 | 0x00000040,  # LR_LOADFROMFILE | LR_DEFAULTSIZE
+                )
+                if native_icon:
+                    self._native_taskbar_icon = native_icon
+                    hwnd = int(self.window.winId())
+                    user32.SendMessageW(hwnd, 0x0080, 0, native_icon)  # WM_SETICON, ICON_SMALL
+                    user32.SendMessageW(hwnd, 0x0080, 1, native_icon)  # WM_SETICON, ICON_BIG
+            except (AttributeError, OSError, TypeError, ValueError):
+                self._native_taskbar_icon = None
         self.window.resize(1180, 760)
         self.destination = Path(self.settings.values["download_directory"])
         profile_dir = Path.home() / "AppData" / "Local" / "FluxoLoad" / "browser-profile"
@@ -479,6 +528,7 @@ class BrowserFluxoLoadApp(QObject):
         self.qt_app.setStyleSheet(
             build_stylesheet(self.settings.values["theme"], self.settings.values["accent_color"])
         )
+        self._refresh_platform_icons()
         self.destination = Path(self.settings.values["download_directory"])
         self.refresh_download_files()
         self.status.showMessage("Configurações salvas")
@@ -519,27 +569,15 @@ class BrowserFluxoLoadApp(QObject):
         row = QHBoxLayout()
         row.setSpacing(28)
         row.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        resource_roots = [
-            Path(getattr(sys, "_MEIPASS", "")) / "assets",
-            Path(__file__).resolve().parent.parent / "assets",
-            Path.cwd() / "assets",
-        ]
-        resource_dir = next((path for path in resource_roots if path.is_dir()), resource_roots[1])
-        image_paths = {
-            "YouTube": resource_dir / "youtube.png",
-            "Instagram": resource_dir / "instagram.png",
-            "TikTok": resource_dir / "tiktok.webp",
-        }
+        self.platform_buttons = {}
         for name, address in self.PLATFORMS.items():
             cell = QVBoxLayout()
             cell.setAlignment(Qt.AlignmentFlag.AlignCenter)
             button = QPushButton()
             button.setObjectName("platformButton")
             button.setFixedSize(136, 136)
-            if image_paths[name].is_file():
-                button.setIcon(QIcon(str(image_paths[name])))
-                button.setIconSize(QSize(124, 124))
-            else:
+            self.platform_buttons[name] = button
+            if not self._set_platform_icon(button, name):
                 button.setText("♪")
                 button.setStyleSheet(
                     "QPushButton { border: none; background: #111827; color: white; "
@@ -555,6 +593,38 @@ class BrowserFluxoLoadApp(QObject):
         home_layout.addStretch(1)
         home_layout.addLayout(row)
         home_layout.addStretch(2)
+
+    def _platform_resource_dir(self) -> Path:
+        resource_roots = [
+            Path(getattr(sys, "_MEIPASS", "")) / "assets",
+            Path(__file__).resolve().parent.parent / "assets",
+            Path.cwd() / "assets",
+        ]
+        return next((path for path in resource_roots if path.is_dir()), resource_roots[1])
+
+    def _platform_icon_path(self, name: str) -> Path:
+        suffix = "escuro" if self.settings.values.get("theme") == "Escuro" else "claro"
+        base_name = {"YouTube": "youtube", "Instagram": "instagram", "TikTok": "tiktok"}[name]
+        resource_dir = self._platform_resource_dir()
+        themed = resource_dir / f"{base_name}_{suffix}.png"
+        if themed.is_file():
+            return themed
+        fallback = resource_dir / f"{base_name}.png"
+        if fallback.is_file():
+            return fallback
+        return resource_dir / f"{base_name}.webp"
+
+    def _set_platform_icon(self, button: QPushButton, name: str) -> bool:
+        image_path = self._platform_icon_path(name)
+        if not image_path.is_file():
+            return False
+        button.setIcon(QIcon(str(image_path)))
+        button.setIconSize(QSize(124, 124))
+        return True
+
+    def _refresh_platform_icons(self) -> None:
+        for name, button in getattr(self, "platform_buttons", {}).items():
+            self._set_platform_icon(button, name)
 
     def _load_finished(self, success: bool) -> None:
         self.status.showMessage("Página carregada" if success else "Falha ao carregar página")
@@ -1015,5 +1085,11 @@ class BrowserFluxoLoadApp(QObject):
             QTimer.singleShot(0, self._start_next_queued_download)
 
     def run(self) -> None:
+        create_first_run_shortcuts(Path(__file__).resolve().parent.parent)
         self.window.show()
+        if sys.platform == "win32" and self._native_taskbar_icon:
+            hwnd = int(self.window.winId())
+            user32 = ctypes.windll.user32
+            user32.SendMessageW(hwnd, 0x0080, 0, self._native_taskbar_icon)
+            user32.SendMessageW(hwnd, 0x0080, 1, self._native_taskbar_icon)
         sys.exit(self.qt_app.exec())

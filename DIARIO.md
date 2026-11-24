@@ -141,3 +141,22 @@ python run.py
 - O pacote inclui `run.py`, `fluxoload`, `assets`, `requirements.txt`, licença, termos de uso e `executar_fluxoload_fonte.cmd`.
 - O lançador procura o Python instalado; se não encontrar, tenta instalar o Python oficial pelo WinGet, cria `.venv`, instala as dependências via pip e executa `run.py`.
 - O instalador ficou separado em `distribuicao\FluxoLoad-Executavel`.
+
+### Padrão para próximas releases
+
+- Nas próximas versões, publicar somente `FluxoLoad-<versão>-fonte-completa-para-compilar.zip` e `FluxoLoad-<versão>-portable-python.zip` como pacotes de código-fonte.
+- Não anexar novamente o antigo `FluxoLoad-1.1.0-source.zip`; ele foi substituído pelos dois pacotes com finalidades distintas.
+
+### Instalação do pacote portable — 23/11/2026
+
+- O lançador `scripts\executar_fluxoload_fonte.cmd` agora eleva a instalação via UAC e chama o instalador PowerShell.
+- `scripts\instalar_fluxoload.ps1` copia o pacote para `C:\Program Files\FluxoLoad`, preservando a pasta/ZIP original e excluindo artefatos locais de build.
+- O instalador cria um `.venv` dentro de `Program Files`, usa o wheelhouse offline quando presente, cria atalhos no Desktop e no Menu Iniciar e inicia o app pelo Python do próprio ambiente instalado.
+- O FluxoLoad é registrado em `HKLM\Software\Microsoft\Windows\CurrentVersion\Uninstall\FluxoLoad`, ficando disponível em Aplicativos instalados.
+- O desinstalador remove a instalação e atalhos, mas preserva downloads, cookies e configurações em `%LOCALAPPDATA%\FluxoLoad`.
+- Validação realizada: parser do PowerShell, `python -m compileall -q fluxoload` e `git diff --check` passaram. O fluxo completo com UAC/desinstalação ainda precisa de teste manual em uma máquina Windows.
+- Gerado `release-assets\FluxoLoad-1.2-portable-python.zip` com o código e o instalador automático. Como o disco C: estava sem espaço suficiente para os aproximadamente 269 MB do wheelhouse, este pacote depende de internet na primeira instalação; o wheelhouse deve ser incluído numa recompilação posterior após liberar espaço.
+- Após uma falha genérica no primeiro uso, o instalador passou a registrar a execução em `%TEMP%\FluxoLoad-install.log` e o lançador exibe o conteúdo do log quando a instalação falha. O portable 1.2 foi regenerado com essa correção.
+- Primeiro teste do portable 1.2 reproduziu falta de espaço durante a instalação do PySide6/Qt WebEngine (`OSError: [Errno 28] No space left on device`). O instalador agora verifica pelo menos 1 GB livre no disco do sistema antes de iniciar e corrige o fechamento do log em caso de erro.
+- Após a instalação concluída, o aplicativo encerrava ao iniciar com `QPixmap: Must construct a QGuiApplication before a QPixmap`. A causa era a criação do `QIcon` antes do `QApplication` em `fluxoload/browser_app.py`; a ordem foi corrigida e o portable 1.2 regenerado.
+- A Home passou a usar `youtube_claro.png`, `youtube_escuro.png`, `instagram_claro.png`, `instagram_escuro.png`, `tiktok_claro.png` e `tiktok_escuro.png` conforme o tema selecionado, com atualização após salvar as configurações. O portable 1.2 foi regenerado.

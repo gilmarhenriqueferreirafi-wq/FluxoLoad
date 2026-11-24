@@ -41,10 +41,12 @@ node node_modules/typescript/bin/tsc
 
 1. Baixe `FluxoLoad-1.1.0-source.zip` na seção **Releases** do GitHub e extraia o arquivo.
 2. Abra a pasta extraída e execute `scripts\executar_fluxoload_fonte.cmd`.
-3. Na primeira execução, o lançador procura Python e WinGet. Se necessário, instala Python pelo WinGet, cria `.venv`, instala as dependências de `requirements.txt` e inicia o aplicativo.
+3. Na primeira execução, o lançador procura Python e WinGet. Se necessário, instala Python pelo WinGet, pede permissão de administrador, copia o aplicativo para `C:\Program Files\FluxoLoad`, cria `.venv`, instala as dependências e inicia o aplicativo.
 4. Se o WinGet ou a instalação automática não estiverem disponíveis, instale Python 3.12 ou superior, marque **Add Python to PATH** durante a instalação e execute o `.cmd` novamente.
 
 O primeiro início demora mais porque instala as dependências. As execuções seguintes reutilizam o `.venv` local.
+
+O ZIP portable preparado para instalação sem internet inclui também os wheels de `pip` para Windows 64-bit com Python 3.14. Para usar esse modo offline, instale Python 3.14 64-bit no computador sem internet; o lançador detecta `wheelhouse-win-amd64-py314` e instala tudo localmente sem acessar o PyPI. Os wheels não são compatíveis com outras versões/arquiteturas do Python.
 
 ### Execução manual
 
@@ -55,7 +57,7 @@ python -m pip install -r requirements.txt
 python run.py
 ```
 
-Também é possível executar `scripts\executar_fluxoload_fonte.cmd`; ele automatiza os mesmos passos.
+Também é possível executar `scripts\executar_fluxoload_fonte.cmd`; ele automatiza a instalação. O pacote original permanece intacto. A instalação cria atalhos no Desktop e no Menu Iniciar e aparece em Aplicativos instalados do Windows. A desinstalação remove somente os arquivos do programa e esses atalhos; downloads, cookies e configurações em `%LOCALAPPDATA%\FluxoLoad` são preservados.
 
 Os arquivos baixados ficam em `Downloads\FluxoLoad` por padrão.
 

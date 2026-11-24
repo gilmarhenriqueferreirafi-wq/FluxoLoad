@@ -1,0 +1,16 @@
+FluxoLoad 1.2 — código-fonte completo
+
+Requisitos: Windows 10/11 64-bit e Python 3.12 ou superior.
+
+Execução pelo código-fonte:
+  python -m venv .venv
+  .\.venv\Scripts\Activate.ps1
+  python -m pip install -r requirements.txt
+  python run.py
+
+Gerar executável:
+  python -m pip install -r requirements/build.txt
+  python -m PyInstaller --noconfirm --clean packaging/FluxoLoad.spec
+
+O pacote portable usa scripts\executar_fluxoload_fonte.cmd para instalar uma cópia
+em C:\Program Files\FluxoLoad e registrar o desinstalador do Windows.
